@@ -1,234 +1,406 @@
 #!/usr/bin/env python3
-"""Render the 27 November 2026 front page (1024x1024, Pillow, deterministic).
+"""Draw the front page of THE WORLD for Friday 27 November 2026.
 
-Fresh design for 27 Nov 2026: masthead, lead story (Kuwait drone strike)
-with a drawn schematic Gulf map panel, a Thanksgiving-storm panel with a
-drawn grounded parade balloon, a Gaza panel, a Bangkok / UK-migration band,
-a "By numbers" band, an "Also today" strip and a footer. No network, no
-randomness. Stories verified by web search on 27 Nov 2026 (Reuters, BBC,
-CNN, WSJ, The Times, France 24, NYT).
+A single 1024x1024 newspaper front page, rendered with Pillow. The picture
+is fully deterministic: no network access, no randomness, no clock reads,
+so running the script twice produces byte-identical output.
+
+Usage:
+    python3 render_frontpage.py [output-path]
+
+The output path defaults to "entry.png" next to this script when omitted.
 """
-import os
+
+import sys
+from pathlib import Path
+
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 1024, 1024
-PAPER = (247, 243, 234)
-INK = (17, 17, 17)
-RED = (164, 18, 31)
-NAVY = (26, 47, 90)
-NAVY_LT = (58, 84, 138)
-GREY = (90, 86, 78)
-LINE = (120, 112, 96)
-GOLD = (201, 162, 39)
-ORANGE = (232, 116, 28)
-TEAL = (18, 102, 96)
+PAGE_W = 1024
+PAGE_H = 1024
+MARGIN = 36
+CONTENT_W = PAGE_W - 2 * MARGIN
 
-FD = "/usr/share/fonts/truetype/dejavu"
+PAPER = (247, 243, 232)
+INK = (18, 18, 18)
+SOFT_INK = (70, 70, 70)
+RULE = (120, 110, 95)
+ACCENT = (163, 18, 18)
+SEA = (198, 222, 235)
+LAND = (232, 214, 178)
+PANEL = (233, 226, 208)
+STORM_BG = (226, 233, 240)
+
+FONT_DIR = Path("/usr/share/fonts/truetype/dejavu")
+
+SERIF = "DejaVuSerif.ttf"
+SERIF_BOLD = "DejaVuSerif-Bold.ttf"
+SANS = "DejaVuSans.ttf"
+SANS_BOLD = "DejaVuSans-Bold.ttf"
 
 
-def f_serif(size, bold=False):
-    return ImageFont.truetype(os.path.join(FD, "DejaVuSerif-Bold.ttf" if bold else "DejaVuSerif.ttf"), size)
+def load_font(name, size):
+    return ImageFont.truetype(str(FONT_DIR / name), size)
 
 
-def f_sans(size, bold=False):
-    return ImageFont.truetype(os.path.join(FD, "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"), size)
-
-
-def wrap(draw, text, font, max_w):
-    words, lines, cur = text.split(), [], ""
-    for w in words:
-        trial = (cur + " " + w).strip()
-        if draw.textlength(trial, font=font) <= max_w:
-            cur = trial
+def wrap_words(draw, text, font, max_width):
+    """Split text into lines that fit inside max_width pixels."""
+    lines = []
+    current = ""
+    for word in text.split():
+        trial = word if not current else current + " " + word
+        if draw.textlength(trial, font=font) <= max_width:
+            current = trial
         else:
-            if cur:
-                lines.append(cur)
-            cur = w
-    if cur:
-        lines.append(cur)
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
     return lines
 
 
-def text(draw, x, y, s, font, fill=INK, anchor="la"):
-    draw.text((x, y), s, font=font, fill=fill, anchor=anchor)
-    return y + font.size
+def draw_para(draw, text, font, x, y, width, leading, fill=INK):
+    """Draw wrapped text starting at (x, y); return the y below the block."""
+    for line in wrap_words(draw, text, font, width):
+        draw.text((x, y), line, font=font, fill=fill)
+        y += leading
+    return y
+
+
+def draw_centred(draw, text, font, cx, y, fill=INK):
+    draw.text((cx, y), text, font=font, fill=fill, anchor="ma")
+
+
+def draw_rule(draw, x0, x1, y, width=2, fill=RULE):
+    draw.line([(x0, y), (x1, y)], fill=fill, width=width)
+
+
+def draw_masthead(draw):
+    draw_rule(draw, MARGIN, PAGE_W - MARGIN, 22, width=3, fill=INK)
+    draw_centred(draw, "THE WORLD", load_font(SERIF_BOLD, 80), PAGE_W // 2, 30)
+    draw_rule(draw, MARGIN, PAGE_W - MARGIN, 108, width=1)
+    small = load_font(SANS_BOLD, 16)
+    draw.text((MARGIN, 116), "FRIDAY 27 NOVEMBER 2026", font=small, fill=INK)
+    draw.text(
+        (PAGE_W - MARGIN, 116),
+        "No. 331  •  PRICE $2.50",
+        font=small,
+        fill=INK,
+        anchor="ra",
+    )
+    draw_rule(draw, MARGIN, PAGE_W - MARGIN, 142, width=3, fill=INK)
+    return 154
+
+
+def draw_lead(draw):
+    y = draw_masthead(draw)
+    draw_centred(
+        draw,
+        "Drones kill two in Kuwait",
+        load_font(SERIF_BOLD, 52),
+        PAGE_W // 2,
+        y,
+    )
+    y += 72
+    draw_centred(
+        draw,
+        "Italian technicians die at air-defence site as Kuwait and Rome",
+        load_font(SERIF, 22),
+        PAGE_W // 2,
+        y,
+    )
+    y += 30
+    draw_centred(
+        draw,
+        "blame Tehran; Iran denies any role",
+        load_font(SERIF, 22),
+        PAGE_W // 2,
+        y,
+    )
+    return y + 36
+
+
+def draw_gulf_map(draw, x0, y0, x1, y1):
+    draw.rectangle([x0, y0, x1, y1], outline=INK, width=2, fill=(250, 248, 240))
+    title = load_font(SANS_BOLD, 15)
+    draw_centred(draw, "THE GULF — SCHEMATIC MAP", title, (x0 + x1) // 2, y0 + 8)
+    inner = (x0 + 10, y0 + 34, x1 - 10, y1 - 10)
+    draw.rectangle(inner, fill=SEA)
+    # Stylised landmass: the Arabian peninsula and the northern shore.
+    land = [
+        (inner[0] + 150, inner[1]),
+        (inner[0] + 330, inner[1]),
+        (inner[0] + 330, inner[1] + 55),
+        (inner[0] + 250, inner[1] + 95),
+        (inner[0] + 205, inner[1] + 150),
+        (inner[0] + 150, inner[1] + 150),
+        (inner[0] + 120, inner[1] + 80),
+    ]
+    draw.polygon(land, fill=LAND, outline=(150, 130, 95))
+    label = load_font(SANS_BOLD, 13)
+    small = load_font(SANS, 13)
+    draw.text((inner[0] + 18, inner[1] + 10), "IRAN", font=label, fill=SOFT_INK)
+    draw.text((inner[0] + 20, inner[1] + 78), "IRAQ", font=label, fill=SOFT_INK)
+    draw.text(
+        (inner[0] + 148, inner[1] + 112),
+        "SAUDI ARABIA",
+        font=label,
+        fill=SOFT_INK,
+    )
+    draw.text(
+        (inner[0] + 275, inner[1] + 118),
+        "PERSIAN\nGULF",
+        font=small,
+        fill=(40, 90, 130),
+    )
+    # Kuwait sits on the north-western shore of the Gulf.
+    kx, ky = inner[0] + 178, inner[1] + 55
+    draw.ellipse([kx - 7, ky - 7, kx + 7, ky + 7], fill=ACCENT, outline=INK)
+    draw.text((kx - 86, ky - 9), "KUWAIT", font=label, fill=ACCENT)
+    # Drone tracks: dashed lines converging on the site.
+    for start in [(inner[0] + 300, inner[1] + 6), (inner[0] + 322, inner[1] + 48)]:
+        steps = 9
+        for i in range(steps):
+            t0 = i / steps
+            t1 = (i + 0.55) / steps
+            ax = start[0] + (kx - start[0]) * t0
+            ay = start[1] + (ky - start[1]) * t0
+            bx = start[0] + (kx - start[0]) * t1
+            by = start[1] + (ky - start[1]) * t1
+            draw.line([(ax, ay), (bx, by)], fill=ACCENT, width=2)
+        draw.ellipse(
+            [start[0] - 4, start[1] - 4, start[0] + 4, start[1] + 4],
+            fill=INK,
+        )
+
+
+def draw_lead_body(draw, y):
+    text_x = MARGIN
+    text_w = 556
+    map_x0 = MARGIN + 584
+    map_x1 = PAGE_W - MARGIN
+    body = load_font(SANS, 19)
+    lead_y = y
+    y = draw_para(
+        draw,
+        "Two Italian technicians employed by Rheinmetall Italia were killed "
+        "when drones struck a Kuwaiti air-defence site. Kuwait and Italy "
+        "blamed Iran; Tehran denied any role and called it a false flag.",
+        body,
+        text_x,
+        y,
+        text_w,
+        26,
+    )
+    y += 8
+    draw_para(
+        draw,
+        "Rome demanded answers over the killing of its nationals, and "
+        "Kuwait stepped up security around sensitive sites. Oil markets "
+        "steadied after an early jump.",
+        body,
+        text_x,
+        y,
+        text_w,
+        26,
+    )
+    draw_gulf_map(draw, map_x0, lead_y, map_x1, lead_y + 196)
+    return lead_y + 196 + 10
+
+
+def draw_balloon(draw, cx, top):
+    # A Thanksgiving parade balloon, drawn from simple shapes.
+    body_top = top
+    body_bottom = top + 62
+    draw.ellipse(
+        [cx - 52, body_top, cx + 52, body_bottom],
+        fill=(214, 72, 48),
+        outline=INK,
+        width=2,
+    )
+    draw.ellipse(
+        [cx - 20, body_top, cx + 20, body_bottom],
+        fill=(240, 200, 60),
+        outline=INK,
+        width=1,
+    )
+    draw.ellipse([cx - 8, body_top + 12, cx + 2, body_top + 26], fill=INK)
+    draw.ellipse([cx + 12, body_top + 12, cx + 22, body_top + 26], fill=INK)
+    draw.arc(
+        [cx - 18, body_top + 30, cx + 18, body_top + 52],
+        start=15,
+        end=165,
+        fill=INK,
+        width=2,
+    )
+    for dx in (-34, 0, 34):
+        draw.line(
+            [(cx + dx, body_bottom - 4), (cx + dx // 2, body_bottom + 34)],
+            fill=INK,
+            width=2,
+        )
+    draw.rectangle(
+        [cx - 16, body_bottom + 34, cx + 16, body_bottom + 56],
+        fill=(122, 82, 40),
+        outline=INK,
+        width=2,
+    )
+
+
+def draw_storm_panel(draw, y):
+    panel_h = 148
+    draw.rectangle(
+        [MARGIN, y, PAGE_W - MARGIN, y + panel_h],
+        fill=STORM_BG,
+        outline=INK,
+        width=2,
+    )
+    draw_balloon(draw, MARGIN + 108, y + 24)
+    tx = MARGIN + 232
+    tw = PAGE_W - MARGIN - tx - 18
+    draw.text(
+        (tx, y + 12),
+        "Storm blacks out 900,000; parade postponed",
+        font=load_font(SERIF_BOLD, 26),
+        fill=INK,
+    )
+    draw_para(
+        draw,
+        "A powerful coastal storm knocked out power to about 900,000 homes "
+        "and businesses along the US East Coast and forced the postponement "
+        "of the 100th Macy's Thanksgiving Day Parade — the first delay in "
+        "its history. Organisers moved the parade to Saturday; gusts hit "
+        "65 mph.",
+        load_font(SANS, 17),
+        tx,
+        y + 48,
+        tw,
+        23,
+    )
+    return y + panel_h + 12
+
+
+def draw_lower_stories(draw, y):
+    gap = 17
+    col_w = (CONTENT_W - 2 * gap) // 3
+    xs = [MARGIN, MARGIN + col_w + gap, MARGIN + 2 * (col_w + gap)]
+    kicker = load_font(SANS_BOLD, 14)
+    head = load_font(SERIF_BOLD, 20)
+    body = load_font(SANS, 15)
+    stories = [
+        (
+            "GAZA",
+            "Hamas weighs reply after strikes kill 10",
+            "Hamas weighed its response after strikes killed 10 in Gaza, "
+            "including senior official Khaled Abu Nada and his wife, on a "
+            "third night of bombing.",
+        ),
+        (
+            "BANGKOK",
+            "Blast at Bangkok refinery injures nine",
+            "An explosion at the Bangchak oil refinery injured at least "
+            "nine people. The company was monitoring air quality around "
+            "the plant.",
+        ),
+        (
+            "BRITAIN",
+            "Migration falls to lowest since 1997",
+            "Net migration to Britain fell to its lowest since 1997, "
+            "excluding the pandemic years, new figures showed.",
+        ),
+    ]
+    for x, (tag, headline, text) in zip(xs, stories):
+        draw.text((x, y), tag, font=kicker, fill=ACCENT)
+        cy = y + 20
+        cy = draw_para(draw, headline, head, x, cy, col_w, 26)
+        cy += 4
+        draw_para(draw, text, body, x, cy, col_w, 21)
+    for dx in (xs[1] - gap // 2 - 1, xs[2] - gap // 2 - 1):
+        draw.line([(dx, y), (dx, y + 166)], fill=RULE, width=1)
+    return y + 166 + 8
+
+
+def draw_by_numbers(draw, y):
+    draw_rule(draw, MARGIN, PAGE_W - MARGIN, y, width=3, fill=INK)
+    y += 8
+    draw_centred(
+        draw, "BY THE NUMBERS", load_font(SANS_BOLD, 15), PAGE_W // 2, y
+    )
+    y += 24
+    stats = [
+        ("2", "technicians killed\nin Kuwait"),
+        ("900,000", "without power\nin the US"),
+        ("10", "killed in\nGaza strikes"),
+        ("9", "hurt in the\nBangkok blast"),
+        ("65 mph", "storm gusts on\nthe East Coast"),
+    ]
+    gap = 10
+    box_w = (CONTENT_W - gap * (len(stats) - 1)) // len(stats)
+    big = load_font(SERIF_BOLD, 30)
+    small = load_font(SANS, 13)
+    for i, (value, label) in enumerate(stats):
+        bx = MARGIN + i * (box_w + gap)
+        draw.rectangle(
+            [bx, y, bx + box_w, y + 76], fill=PANEL, outline=RULE, width=1
+        )
+        draw_centred(draw, value, big, bx + box_w // 2, y + 6, fill=ACCENT)
+        ly = y + 42
+        for line in label.split("\n"):
+            draw_centred(draw, line, small, bx + box_w // 2, ly, fill=SOFT_INK)
+            ly += 16
+    return y + 76 + 8
+
+
+def draw_also_today(draw, y):
+    label = load_font(SANS_BOLD, 15)
+    text = load_font(SANS, 15)
+    lx = MARGIN
+    draw.text((lx, y), "ALSO TODAY", font=label, fill=ACCENT)
+    label_w = draw.textlength("ALSO TODAY  ", font=label)
+    draw_para(
+        draw,
+        "Chess: Gukesh-Sindarov draw Game 3 of the World Championship  •  "
+        "Kim Jong Un vows more nuclear weapons  •  US GDP up to 4.3%  •  "
+        "Tanker capsizes off Ibiza",
+        text,
+        lx + int(label_w),
+        y,
+        PAGE_W - MARGIN - lx - int(label_w),
+        20,
+    )
+    return y + 40
+
+
+def draw_footer(draw, y):
+    draw_centred(
+        draw,
+        "THE WORLD  •  Friday 27 November 2026  •  Front page drawn for the make.fun news-image-20261127 bounty",
+        load_font(SANS, 12),
+        PAGE_W // 2,
+        y,
+        fill=SOFT_INK,
+    )
+
+
+def build_page():
+    image = Image.new("RGB", (PAGE_W, PAGE_H), PAPER)
+    draw = ImageDraw.Draw(image)
+    y = draw_lead(draw)
+    y = draw_lead_body(draw, y)
+    y = draw_storm_panel(draw, y)
+    y = draw_lower_stories(draw, y)
+    y = draw_by_numbers(draw, y)
+    y = draw_also_today(draw, y)
+    draw_footer(draw, y + 14)
+    return image
 
 
 def main():
-    img = Image.new("RGB", (W, H), PAPER)
-    d = ImageDraw.Draw(img)
-    mx = 36  # margin
-    rx = W - mx
-
-    # ---------- masthead ----------
-    d.line([(mx, 26), (rx, 26)], fill=INK, width=4)
-    d.line([(mx, 32), (rx, 32)], fill=INK, width=1)
-    mast = f_serif(88, bold=True)
-    text(d, W // 2, 44, "THE WORLD", mast, anchor="ma")
-    d.line([(mx, 140), (rx, 140)], fill=INK, width=2)
-    d.line([(mx, 144), (rx, 144)], fill=INK, width=1)
-    small = f_sans(17, bold=True)
-    text(d, mx, 152, "FRIDAY 27 NOVEMBER 2026", small)
-    text(d, rx, 152, "ONE IMAGE  •  THE DAY IN NEWS", small, anchor="ra")
-    d.line([(mx, 178), (rx, 178)], fill=LINE, width=1)
-
-    # ---------- lead story (left) ----------
-    y = 196
-    kick = f_sans(19, bold=True)
-    text(d, mx, y, "GULF CRISIS  —  LEAD", kick, fill=RED)
-    y = 228
-    hl = f_serif(38, bold=True)
-    text(d, mx, y, "DRONES KILL TWO", hl)
-    y = 282
-    text(d, mx, y, "IN KUWAIT", hl)
-    y = 344
-    body = f_sans(19)
-    lines = wrap(d, "Two Italian technicians die at a Kuwaiti air-defence site hit by drones. Kuwait and Italy blame Iran; Tehran denies any role.", body, 500)
-    for ln in lines:
-        y = text(d, mx, y, ln, body)
-        y += 6
-    y += 10
-    cap = f_sans(16)
-    lines = wrap(d, "The dead worked for Rheinmetall Italia, maintaining detection antennas for the Skyguard system. Two more people were wounded.", cap, 500)
-    for ln in lines:
-        y = text(d, mx, y, ln, cap, fill=GREY)
-        y += 5
-    d.line([(mx, 500), (540, 500)], fill=LINE, width=1)
-
-    # ---------- lead graphic panel: schematic Gulf map (right) ----------
-    gx0, gy0, gx1, gy1 = 560, 192, 988, 500
-    d.rectangle([gx0, gy0, gx1, gy1], fill=NAVY)
-    d.rectangle([gx0, gy0, gx1, gy1], outline=INK, width=2)
-    lab = f_sans(15, bold=True)
-    text(d, gx0 + 14, gy0 + 10, "THE GULF, ON ALERT", lab, fill=(255, 255, 255))
-    text(d, gx1 - 14, gy0 + 10, "SCHEMATIC", f_sans(13, bold=True), fill=(200, 208, 224), anchor="ra")
-    # stylised Gulf water + land
-    d.polygon([(600, 330), (660, 290), (760, 275), (880, 260), (950, 280),
-               (940, 360), (870, 420), (760, 430), (650, 420), (595, 380)],
-              outline=NAVY_LT, width=2)
-    # Gulf water strip
-    d.polygon([(690, 320), (820, 300), (900, 305), (880, 340), (760, 355), (700, 345)],
-              fill=(38, 68, 120))
-    text(d, 795, 318, "GULF", f_sans(13, bold=True), fill=(170, 190, 220), anchor="ma")
-    text(d, 700, 250, "IRAN", f_sans(15, bold=True), fill=(255, 255, 255), anchor="ma")
-    text(d, 700, 268, "denies role", f_sans(13), fill=(200, 208, 224), anchor="ma")
-    text(d, 905, 380, "SAUDI", f_sans(13, bold=True), fill=(200, 208, 224), anchor="ma")
-    text(d, 905, 397, "ARABIA", f_sans(13, bold=True), fill=(200, 208, 224), anchor="ma")
-    # Kuwait marker with blast star
-    kx, ky = 668, 345
-    for r in (26, 18, 10):
-        d.ellipse([kx - r, ky - r, kx + r, ky + r], outline=GOLD, width=2)
-    d.ellipse([kx - 7, ky - 7, kx + 7, ky + 7], fill=GOLD, outline=(255, 255, 255), width=2)
-    text(d, kx, ky + 32, "KUWAIT", f_sans(14, bold=True), fill=(255, 255, 255), anchor="ma")
-    text(d, kx, ky + 50, "air-defence site hit", f_sans(13), fill=(200, 208, 224), anchor="ma")
-    # dashed drone path Iran -> Kuwait
-    for i in range(0, 130, 14):
-        x = 700 + i
-        yy = 285 + int((x - 700) * 60 / 130)
-        d.ellipse([x, yy - 2, x + 8, yy + 2], fill=GOLD)
-    text(d, 800, 285, "drones", f_sans(13, bold=True), fill=GOLD, anchor="ma")
-    # blast star at Kuwait
-    def star(x, yy, r, fill):
-        # 8-point star polygon
-        pts = [(x, yy - r), (x + r * 0.28, yy - r * 0.28), (x + r, yy),
-               (x + r * 0.28, yy + r * 0.28), (x, yy + r), (x - r * 0.28, yy + r * 0.28),
-               (x - r, yy), (x - r * 0.28, yy - r * 0.28)]
-        d.polygon(pts, fill=fill)
-    star(kx - 52, ky - 40, 14, ORANGE)
-    text(d, gx0 + 14, gy1 - 26, "Reuters  •  BBC  •  CNN  •  WSJ", f_sans(13), fill=(200, 208, 224))
-
-    # ---------- middle row ----------
-    my0, my1 = 516, 740
-    # left panel: Thanksgiving storm
-    px0, px1 = mx, 500
-    d.rectangle([px0, my0, px1, my1], outline=INK, width=2)
-    d.rectangle([px0, my0, px1, my0 + 34], fill=INK)
-    text(d, px0 + 12, my0 + 7, "THANKSGIVING STORM", f_sans(16, bold=True), fill=(255, 255, 255))
-    text(d, px0 + 12, my0 + 44, "900,000 LOSE POWER", f_serif(24, bold=True))
-    text(d, px0 + 12, my0 + 74, "AS PARADE IS PUT OFF", f_serif(24, bold=True))
-    y = my0 + 110
-    for ln in wrap(d, "A coastal storm batters the US East Coast on Thanksgiving; flights cancelled, floods hit the coast.", f_sans(15), px1 - px0 - 24):
-        y = text(d, px0 + 12, y, ln, f_sans(15))
-        y += 2
-    text(d, px0 + 12, my0 + 152, "100th parade — first postponement ever", f_sans(14, bold=True), fill=RED)
-    # drawn grounded balloon: deflated balloon + rain + lightning
-    bx, by = px0 + 232, my0 + 196
-    d.ellipse([bx - 46, by - 20, bx + 46, by + 20], fill=RED, outline=(120, 10, 20), width=2)
-    d.line([(bx - 40, by + 16), (bx - 8, by + 30)], fill=INK, width=2)
-    d.line([(bx + 40, by + 16), (bx + 8, by + 30)], fill=INK, width=2)
-    # rain streaks
-    for rx0 in (px0 + 30, px0 + 90, px0 + 400, px0 + 440):
-        d.line([(rx0, my0 + 172), (rx0 - 8, my0 + 198)], fill=NAVY_LT, width=3)
-    # lightning bolt
-    d.polygon([(430, my0 + 172), (448, my0 + 172), (438, my0 + 190), (452, my0 + 190),
-               (424, my0 + 216), (434, my0 + 196), (420, my0 + 196)], fill=GOLD)
-
-    # right panel: Gaza
-    qx0, qx1 = 524, 988
-    d.rectangle([qx0, my0, qx1, my1], outline=INK, width=2)
-    d.rectangle([qx0, my0, qx1, my0 + 34], fill=RED)
-    text(d, qx0 + 12, my0 + 7, "GAZA", f_sans(16, bold=True), fill=(255, 255, 255))
-    text(d, qx0 + 12, my0 + 44, "HAMAS WEIGHS REPLY", f_serif(24, bold=True))
-    text(d, qx0 + 12, my0 + 74, "AFTER 10 KILLED", f_serif(24, bold=True))
-    text(d, qx0 + 12, my0 + 110, "Israeli strikes kill 10 in Gaza, incl.", f_sans(15))
-    text(d, qx0 + 12, my0 + 128, "senior Hamas official Khaled Abu Nada", f_sans(15))
-    text(d, qx0 + 12, my0 + 146, "and his wife; Hamas weighs its reply.", f_sans(15))
-    text(d, qx0 + 12, my0 + 172, "10", f_serif(46, bold=True), fill=RED)
-    text(d, qx0 + 84, my0 + 186, "killed in a third night of", f_sans(15), fill=GREY)
-    text(d, qx0 + 84, my0 + 206, "strikes — Reuters", f_sans(15), fill=GREY)
-
-    # ---------- Bangkok / UK band ----------
-    gy0, gy1 = 756, 856
-    d.rectangle([mx, gy0, rx, gy1], outline=INK, width=2)
-    d.rectangle([mx, gy0, mx + 10, gy1], fill=ORANGE)
-    # left half: Bangkok
-    y = gy0 + 10
-    text(d, mx + 24, y, "BANGKOK", f_sans(16, bold=True), fill=ORANGE)
-    y = text(d, mx + 24, y + 22, "REFINERY BLAST HURTS 9", f_serif(22, bold=True))
-    y += 6
-    lines = wrap(d, "An explosion at the Bangchak oil refinery injures at least nine; the company monitors air quality.", f_sans(15), 440)
-    for ln in lines:
-        y = text(d, mx + 24, y, ln, f_sans(15))
-        y += 3
-    # divider + right half: UK migration
-    d.line([(512, gy0 + 8), (512, gy1 - 8)], fill=LINE, width=1)
-    y = gy0 + 10
-    text(d, 528, y, "BRITAIN", f_sans(16, bold=True), fill=TEAL)
-    y = text(d, 528, y + 22, "MIGRATION LOWEST SINCE 1997", f_serif(22, bold=True))
-    y += 6
-    lines = wrap(d, "Net migration to the UK falls to its lowest level since 1997, excluding the pandemic years.", f_sans(15), 440)
-    for ln in lines:
-        y = text(d, 528, y, ln, f_sans(15))
-        y += 3
-
-    # ---------- by numbers ----------
-    ny0, ny1 = 870, 940
-    d.rectangle([mx, ny0, rx, ny1], outline=INK, width=2)
-    nums = [("2", "killed in Kuwait"), ("900,000", "without power, US"),
-            ("10", "killed in Gaza"), ("9", "hurt in Bangkok"),
-            ("65 mph", "storm gusts")]
-    cw = (rx - mx) / 5
-    for i, (n, lab) in enumerate(nums):
-        cx = mx + cw * i
-        if i:
-            d.line([(cx, ny0 + 8), (cx, ny1 - 8)], fill=LINE, width=1)
-        text(d, cx + cw / 2, ny0 + 8, n, f_serif(30, bold=True), fill=RED, anchor="ma")
-        text(d, cx + cw / 2, ny0 + 46, lab, f_sans(13), fill=GREY, anchor="ma")
-
-    # ---------- also today ----------
-    ay = 954
-    strip = "ALSO TODAY:  Chess: Gukesh–Sindarov draw Game 3  •  Kim vows more nukes  •  US GDP 4.3%  •  Tanker sinks off Ibiza"
-    assert d.textlength(strip, font=f_sans(14, bold=True)) <= rx - mx, "also-today strip too wide"
-    text(d, mx, ay, strip, f_sans(14, bold=True))
-    d.line([(mx, 978), (rx, 978)], fill=LINE, width=1)
-
-    # ---------- footer ----------
-    text(d, mx, 990, "Sources: Reuters  •  BBC  •  CNN  •  WSJ  •  The Times  •  France 24 — drawn from verified reporting, 27 November 2026", f_sans(14), fill=GREY)
-    text(d, W // 2, 1006, "THE WORLD — one image, the day\u2019s news", f_sans(13), fill=GREY, anchor="ma")
-
-    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "entry.png")
-    img.save(out, "PNG", optimize=True)
-    print("wrote", out, os.path.getsize(out), "bytes")
+    out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("entry.png")
+    page = build_page()
+    page.save(out, format="PNG", optimize=True)
+    print(f"Wrote {out} ({out.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":
